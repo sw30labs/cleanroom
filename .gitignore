@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+.ruff_cache/
+.pytest_cache/
+
+# Runtime artifacts
+generated/
+cleanroom_runs.jsonl
+*.db
+*.db-wal
+*.db-shm
+
+# OS
+.DS_Store
+# Humanize tooling artifacts (local only)
+.humanize/
+.humanized/
+*.pre-humanize.bak/

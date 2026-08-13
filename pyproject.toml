@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cleanroom"
+version = "0.1.0"
+description = "An agentic file-hygiene pipeline: Analyze → Recommend → Remediate → QA for any single file."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Cleanroom contributors"}]
+requires-python = ">=3.12,<3.14"
+keywords = ["file-hygiene", "provenance", "langgraph", "local-llm", "agentic"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Utilities",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "langgraph>=1.0",
+    "httpx>=0.27",
+    "pydantic>=2.0",
+    "tenacity>=8.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+cleanroom = "cleanroom.cli:main"
+
+[project.urls]
+Repository = "https://github.com/sw30labs/cleanroom"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+pdf = ["pypdf>=4.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cleanroom*"]
+exclude = ["tests*", "scripts*"]
+
+[tool.setuptools.package-data]
+cleanroom = [
+    "py.typed",
+    "web/static/*.html",
+    "web/static/*.svg",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"

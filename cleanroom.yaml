@@ -1,0 +1,58 @@
+# Cleanroom configuration.
+#
+# Precedence (highest wins):
+#   1. explicit arguments in code (e.g. Settings(omlx_model="..."))
+#   2. environment variables (CLEANROOM_LLM_PROVIDER, OMLX_MODEL, DGX_MODEL, …)
+#   3. this file
+#   4. built-in defaults
+#
+# Point CLEANROOM_CONFIG at another path to use a different file.
+# Unknown sections/keys and wrong types are rejected loudly (typo protection).
+
+# Active LLM backend: "omlx" (Mac MLX server) or "dgx" (NVIDIA DGX vLLM).
+# Aliases "mlx" / "vllm" are accepted. Env: CLEANROOM_LLM_PROVIDER.
+provider: omlx
+
+omlx:
+  # OpenAI-compatible endpoint served by OMLX
+  base_url: http://127.0.0.1:8000/v1
+
+  # Generation / default model
+  model: DeepSeek-V4-Flash-0731-MXFP4-MLX
+
+  # QA judge model
+  model_judge: DeepSeek-V4-Flash-0731-MXFP4-MLX
+
+  # Optional independent model for the final pass/fail verdict.
+  # Empty string = disabled (the judge model also does the final pass).
+  model_final_judge: ""
+
+  # HTTP timeout in seconds and generation token cap.
+  timeout: 600
+  max_tokens: 16384
+
+  # Use POST /v1/responses instead of /v1/chat/completions. Off by default.
+  use_responses_api: false
+
+# DGX vLLM backend — used when provider: dgx.
+dgx:
+  base_url: http://127.0.0.1:8000/v1
+  model: Qwen/Qwen3.6-27B-FP8
+  model_judge: Qwen/Qwen3.6-27B-FP8
+  model_final_judge: ""
+  timeout: 600
+  max_tokens: 16384
+  enable_thinking: false
+
+# Pipeline defaults (override with CLEANROOM_STRENGTH / CLEANROOM_AUTO_APPLY).
+clean:
+  # safe = lossless deterministic remediation only.
+  # aggressive = + LLM rewrite and metadata escalation.
+  default_strength: safe
+  # Bounded judge-and-revise loop in QA.
+  max_judge_iterations: 3
+  # Minimum judge score (0-1) to mark QA as PASS.
+  judge_score_threshold: 0.80
+
+# API keys are intentionally NOT in this file — secrets stay in the
+# OMLX_API_KEY / DGX_API_KEY (or VLLM_API_KEY) environment variables.
