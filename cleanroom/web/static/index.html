@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CLEANROOM // Agentic File Hygiene</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<!-- ── I added this: load the persona-avatar widget (plain script, no build step) ── -->
+<script src="/persona-avatar.js"></script>
+<!-- ── end of my persona-avatar script include ── -->
 <style>
 :root {
   --bg: #04060c;
@@ -180,6 +183,13 @@ main { flex: 1; padding: 28px 30px 60px; max-width: 1460px; }
 .stage.error .stage-status { color: var(--red); border-color: rgba(248,113,113,0.35); }
 .stage.error .stage-status i { background: var(--red); }
 .stage.pending .stage-status { color: var(--dim); }
+/* ── I added this: avatar slot in the top-right of each pipeline card ── */
+.stage .stage-avatar { position: absolute; top: 12px; right: 12px; opacity: .55; transition: opacity .2s; }
+.stage.active .stage-avatar { opacity: 1; }
+.stage.done .stage-avatar { opacity: .9; }
+/* I keep the description text clear of the absolutely-positioned avatar */
+.stage p { padding-right: 62px; }
+/* ── end of my stage-avatar styles ── */
 @media (max-width: 1100px) { .pipe-grid { grid-template-columns: repeat(2, 1fr); } }
 
 /* ── upload dropzone ────────────────────────────── */
@@ -378,24 +388,32 @@ table.data td.mono { font-family: var(--mono); font-size: 11px; }
       <div class="pipe-grid">
         <div class="stage pending" id="stage-analyze">
           <div class="stage-idx">PHASE 01</div>
+          <!-- I added: avatar slot for this card (filled by my script below) -->
+          <div class="stage-avatar" id="avatar-analyze"></div>
           <h3>ANALYZE</h3>
           <p>Classify the file, extract content, and detect provenance marks (Unicode, metadata, container hints).</p>
           <span class="stage-status"><i></i> idle</span>
         </div>
         <div class="stage pending" id="stage-recommend">
           <div class="stage-idx">PHASE 02</div>
+          <!-- I added: avatar slot for this card -->
+          <div class="stage-avatar" id="avatar-recommend"></div>
           <h3>RECOMMEND</h3>
           <p>Build a ranked remediation plan — lossless deterministic actions first, escalate to rewrite only when needed.</p>
           <span class="stage-status"><i></i> idle</span>
         </div>
         <div class="stage pending" id="stage-remediate">
           <div class="stage-idx">PHASE 03</div>
+          <!-- I added: avatar slot for this card -->
+          <div class="stage-avatar" id="avatar-remediate"></div>
           <h3>REMEDIATE</h3>
           <p>Apply the plan to write a cleaned sibling via safe atomic writes — never mutating your original in place.</p>
           <span class="stage-status"><i></i> idle</span>
         </div>
         <div class="stage pending" id="stage-qa">
           <div class="stage-idx">PHASE 04</div>
+          <!-- I added: avatar slot for this card -->
+          <div class="stage-avatar" id="avatar-qa"></div>
           <h3>QA</h3>
           <p>Verify with deterministic checks plus a bounded judge-and-revise loop scoring residual marks and fidelity.</p>
           <span class="stage-status"><i></i> idle</span>
@@ -501,6 +519,43 @@ function setFile(f) {
   log("// file staged: " + f.name + " (" + f.size + " bytes)");
 }
 
+// ── I added: per-phase persona avatars ──────────────────────────────────
+// I want one animated avatar per pipeline card, each with its own shape.
+// Behavior: the avatar spins while its phase is active, and powers down
+// (still, eyes closed) whenever the phase is not active.
+const STAGE_AVATAR_CFG = {
+  analyze:   { shape: "squircle", activeState: "searching" },
+  recommend: { shape: "hex",      activeState: "thinking"  },
+  remediate: { shape: "teardrop", activeState: "writing"   },
+  qa:        { shape: "cloud",    activeState: "curious"   },
+};
+const stageAvatars = {};
+Object.entries(STAGE_AVATAR_CFG).forEach(([id, cfg]) => {
+  stageAvatars[id] = new PersonaAvatar($("#avatar-" + id), id, {
+    shape: cfg.shape,           // I pin the shape per card; the color comes from the id hash
+    state: "powering-down",     // cards start inactive, so the avatars start powered down
+    sizePx: 56,
+  });
+});
+// I spin the avatar continuously while its stage is active: each spinSignal
+// bump fires exactly one 900ms spin, so a 900ms timer keeps it spinning.
+const stageSpinTimers = {};
+function syncAvatar(id, stageState) {
+  const av = stageAvatars[id];
+  if (!av) return;
+  clearInterval(stageSpinTimers[id]);
+  stageSpinTimers[id] = null;
+  if (stageState === "active") {
+    av.setState(STAGE_AVATAR_CFG[id].activeState);  // ambient motion under the spin
+    let signal = 0;
+    av.setSpinSignal(++signal);
+    stageSpinTimers[id] = setInterval(() => av.setSpinSignal(++signal), 900);
+  } else {
+    av.setState("powering-down");
+  }
+}
+// ── end of my persona-avatar setup ──
+
 // ── console ──
 function log(msg, cls = "c-info") {
   const c = $("#console");
@@ -512,6 +567,9 @@ function setStage(id, state, label) {
   s.className = "stage " + state;
   const pill = s.querySelector(".stage-status");
   pill.innerHTML = `<i></i> ${label}`;
+  // I added: keep the card's avatar in sync with the stage state
+  // (spinning while active, powered down otherwise)
+  syncAvatar(id, state);
 }
 function resetStages() {
   ["analyze", "recommend", "remediate", "qa"].forEach(id => setStage(id, "pending", "idle"));

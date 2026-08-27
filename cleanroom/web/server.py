@@ -91,6 +91,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
         elif route == "/favicon.svg":
             self._send_file(STATIC_DIR / "favicon.svg", "image/svg+xml")
+        # ── I added this: serve the persona-avatar widget script ─────────
+        # I need the avatar library reachable by the browser; without this
+        # route the server's whitelist would 404 it.
+        elif route == "/persona-avatar.js":
+            self._send_file(STATIC_DIR / "persona-avatar.js", "text/javascript; charset=utf-8")
+        # ── end of my persona-avatar route ──
         elif route == "/api/payload":
             self._send_json(build_dashboard_payload())
         elif route == "/api/settings":
