@@ -26,13 +26,40 @@ from typing import Any
 
 # ── Mark detection ──────────────────────────────────────────────
 
-# Invisible / exotic Unicode that AI provenance marks commonly inject.
-INVISIBLE = {
+# Invisible marks are stripped (or mapped to space/newline). Visible Latin
+# typography and diacritics are folded to ASCII (em dash → --, ñ → n, …).
+
+_KEEP_CONTROLS = frozenset({"\t", "\n", "\r"})
+
+# Blank-looking codepoints whose Unicode category is letter/mark/symbol,
+# so a category check would miss them.
+_INVISIBLE_EXTRA = frozenset({
+    "\u034f",  # combining grapheme joiner
+    "\u115f",  # hangul choseong filler
+    "\u1160",  # hangul jungseong filler
+    "\u17b4",  # khmer vowel inherent aq
+    "\u17b5",  # khmer vowel inherent aa
+    "\u2800",  # braille pattern blank
+    "\u3164",  # hangul filler
+    "\uffa0",  # halfwidth hangul filler
+})
+
+# Named set for the families watermarks commonly inject. Detection also uses
+# Unicode categories below so siblings of these ranges are not skipped.
+INVISIBLE = frozenset({
+    # zero-width / joiners
     "\u200b",  # ZWSP
     "\u200c",  # ZWNJ
     "\u200d",  # ZWJ
+    "\u2060",  # word joiner
+    "\ufeff",  # BOM / ZWNBSP
+    "\u00ad",  # soft hyphen
+    "\u034f",  # CGJ
+    "\u180e",  # mongolian vowel separator
+    # bidi / isolates
     "\u200e",  # LRM
     "\u200f",  # RLM
+    "\u061c",  # Arabic letter mark
     "\u202a",  # LRE
     "\u202b",  # RLE
     "\u202c",  # PDF
@@ -42,42 +69,191 @@ INVISIBLE = {
     "\u2067",  # RLI
     "\u2068",  # FSI
     "\u2069",  # PDI
+    # deprecated format / invisible math
+    "\u2061",  # function application
+    "\u2062",  # invisible times
+    "\u2063",  # invisible separator
+    "\u2064",  # invisible plus
     "\u206a",  # ISS
     "\u206b",  # ASS
     "\u206c",  # IAFS
     "\u206d",  # AAFS
     "\u206e",  # NAFFS
     "\u206f",  # NADS
-    "\ufeff",  # BOM/ZWNBSP
-    "\u00a0",  # NBSP (optionally exotic)
+    # line / paragraph separators
+    "\u2028",
+    "\u2029",
+    # exotic spaces (regular U+0020 is not a mark)
+    "\u00a0",  # NBSP
+    "\u1680",  # ogham space mark
+    "\u2000",  # en quad
+    "\u2001",  # em quad
+    "\u2002",  # en space
+    "\u2003",  # em space
+    "\u2004",  # three-per-em space
+    "\u2005",  # four-per-em space
+    "\u2006",  # six-per-em space
     "\u2007",  # figure space
+    "\u2008",  # punctuation space
+    "\u2009",  # thin space
+    "\u200a",  # hair space
     "\u202f",  # narrow NBSP
     "\u205f",  # MMSP
     "\u3000",  # ideographic space
-}
+}) | _INVISIBLE_EXTRA
 
 # Zero-width tag characters (U+E0000+): also used for watermark payloads.
 TAG_CHARS_START = 0xE0000
 TAG_CHARS_END = 0xE007F
+_VS_START, _VS_END = 0xFE00, 0xFE0F
+_VS_SUP_START, _VS_SUP_END = 0xE0100, 0xE01EF
+
+# Visible punctuation → ASCII. Letters with diacritics go through NFKD below;
+# this dict covers punctuation that does not decompose, plus a few Latin leftovers.
+VISIBLE_FOLD: dict[str, str] = {
+    # dashes / minus
+    "\u2010": "-",    # hyphen
+    "\u2011": "-",    # non-breaking hyphen
+    "\u2012": "-",    # figure dash
+    "\u2013": "-",    # en dash
+    "\u2014": "--",   # em dash
+    "\u2015": "--",   # horizontal bar
+    "\u2212": "-",    # minus sign
+    "\u2e3a": "---",  # two-em dash
+    "\u2e3b": "----", # three-em dash
+    "\uff0d": "-",    # fullwidth hyphen-minus
+    # quotes
+    "\u2018": "'",    # left single
+    "\u2019": "'",    # right single / apostrophe
+    "\u201a": "'",    # single low-9
+    "\u201b": "'",    # single high-reversed-9
+    "\u201c": '"',    # left double
+    "\u201d": '"',    # right double
+    "\u201e": '"',    # double low-9
+    "\u201f": '"',    # double high-reversed-9
+    "\u00ab": '"',    # «
+    "\u00bb": '"',    # »
+    "\u2039": "'",    # ‹
+    "\u203a": "'",    # ›
+    "\u2032": "'",    # prime
+    "\u2033": '"',    # double prime
+    "\u00b4": "'",    # acute accent
+    "\uff02": '"',    # fullwidth quotation mark
+    "\uff07": "'",    # fullwidth apostrophe
+    # ellipsis / dots
+    "\u2026": "...",
+    "\u2024": ".",
+    "\u2025": "..",
+    "\u22ef": "...",
+    # bullets
+    "\u2022": "*",
+    "\u2023": "*",
+    "\u2043": "-",
+    "\u00b7": "*",
+    "\u2219": "*",
+    "\u25e6": "*",
+}
+
+# Latin letters that NFKD does not reduce to ASCII on their own.
+LATIN_FOLD: dict[str, str] = {
+    "\u00df": "ss",  # ß
+    "\u00e6": "ae", "\u00c6": "AE",
+    "\u0153": "oe", "\u0152": "OE",
+    "\u00f8": "o",  "\u00d8": "O",
+    "\u00f0": "d",  "\u00d0": "D",
+    "\u00fe": "th", "\u00de": "Th",
+    "\u0142": "l",  "\u0141": "L",
+    "\u0131": "i",  # dotless i
+    "\u00f1": "n",  "\u00d1": "N",  # ñ — also handled by NFKD
+}
 
 
 def _is_invisible(ch: str) -> bool:
+    """True for format/control marks, exotic spaces, tags, and blank extras."""
+    if ch in _KEEP_CONTROLS:
+        return False
     if ch in INVISIBLE:
         return True
     cp = ord(ch)
-    return TAG_CHARS_START <= cp <= TAG_CHARS_END
+    if TAG_CHARS_START <= cp <= TAG_CHARS_END:
+        return True
+    if _VS_START <= cp <= _VS_END or _VS_SUP_START <= cp <= _VS_SUP_END:
+        return True
+    cat = unicodedata.category(ch)
+    if cat in {"Cf", "Zl", "Zp"}:
+        return True
+    if cat == "Zs" and ch != " ":
+        return True
+    if cat == "Cc":
+        return True
+    return False
+
+
+def _mark_replacement(ch: str) -> str:
+    """Replace exotic spaces with ASCII space, separators with newline; else drop."""
+    cat = unicodedata.category(ch)
+    if cat == "Zs":
+        return " "
+    if cat in {"Zl", "Zp"}:
+        return "\n"
+    return ""
+
+
+def _fold_visible(ch: str) -> str:
+    """Map visible non-ASCII Latin typography/letters to ASCII; keep other scripts."""
+    if ord(ch) < 128:
+        return ch
+    mapped = VISIBLE_FOLD.get(ch)
+    if mapped is not None:
+        return mapped
+    mapped = LATIN_FOLD.get(ch)
+    if mapped is not None:
+        return mapped
+    name = unicodedata.name(ch, "")
+    if name.startswith("LATIN"):
+        pieces: list[str] = []
+        for d in unicodedata.normalize("NFKD", ch):
+            if unicodedata.category(d) == "Mn":
+                continue
+            if ord(d) < 128:
+                pieces.append(d)
+            elif d in LATIN_FOLD:
+                pieces.append(LATIN_FOLD[d])
+            elif d in VISIBLE_FOLD:
+                pieces.append(VISIBLE_FOLD[d])
+        return "".join(pieces)
+    cat = unicodedata.category(ch)
+    if cat == "Pd":
+        return "--" if ("EM DASH" in name or "HORIZONTAL BAR" in name) else "-"
+    if cat in {"Pi", "Pf"}:
+        return "'" if ("SINGLE" in name or "APOSTROPHE" in name) else '"'
+    if "ELLIPSIS" in name:
+        return "..."
+    return ch
+
+
+def _needs_fold(ch: str) -> bool:
+    return _fold_visible(ch) != ch
 
 
 def detect_marks(text: str) -> dict[str, Any]:
     """Return a structured report of editable Unicode marks in ``text``."""
     by_cp: dict[str, int] = {}
+    invisible = 0
+    visible = 0
     for ch in text:
         if _is_invisible(ch):
             by_cp[ch] = by_cp.get(ch, 0) + 1
-    total = sum(by_cp.values())
+            invisible += 1
+        elif _needs_fold(ch):
+            by_cp[ch] = by_cp.get(ch, 0) + 1
+            visible += 1
+    total = invisible + visible
     examples = sorted(by_cp.items(), key=lambda kv: -kv[1])[:10]
     return {
         "total_marked_chars": total,
+        "invisible_chars": invisible,
+        "visible_fold_chars": visible,
         "distinct_codepoints": len(by_cp),
         "codepoints": [
             {"codepoint": f"U+{ord(c):04X}", "char": repr(c), "count": n}
@@ -88,8 +264,21 @@ def detect_marks(text: str) -> dict[str, Any]:
 
 
 def strip_marks(text: str) -> str:
-    """Remove invisible Unicode and tag characters (lossless for visible text)."""
-    return "".join(ch for ch in text if not _is_invisible(ch))
+    """Strip invisible marks and fold visible Latin typography to ASCII.
+
+    Exotic spaces become a normal space; line/paragraph separators become ``\\n``.
+    Em dashes, curly quotes, ñ, and other Latin diacritics become ASCII.
+    Non-Latin scripts are left alone.
+    """
+    out: list[str] = []
+    for ch in text:
+        if _is_invisible(ch):
+            repl = _mark_replacement(ch)
+            if repl:
+                out.append(repl)
+            continue
+        out.append(_fold_visible(ch))
+    return "".join(out)
 
 
 # ── File classification ─────────────────────────────────────────
@@ -320,7 +509,8 @@ METADATA_STRIP_BY_EXT: dict[str, list[str]] = {
 def remediate_deterministic(profile: FileProfile, data: bytes | None = None) -> dict[str, Any]:
     """Apply safe, deterministic remediation for a file.
 
-    Returns an action log. For text: strips invisible Unicode marks. For
+    Returns an action log. For text: strips invisible Unicode and folds
+    visible Latin typography to ASCII. For
     metadata containers: strips frontmatter AI keys (md), and reports the
     container types whose metadata segments need exiftool/c2patool for a full
     strip (kept honest: this path never claims it removed what it did not).
@@ -334,12 +524,19 @@ def remediate_deterministic(profile: FileProfile, data: bytes | None = None) -> 
         before = detect_marks(text)
         cleaned = strip_marks(text)
         after = detect_marks(cleaned)
-        if before["total_marked_chars"] > 0:
+        if before.get("invisible_chars", 0) > 0:
             actions.append(
                 {
                     "op": "strip_invisible_unicode",
-                    "removed": before["total_marked_chars"],
-                    "distinct": before["distinct_codepoints"],
+                    "removed": before["invisible_chars"],
+                    "verifiable": True,
+                }
+            )
+        if before.get("visible_fold_chars", 0) > 0:
+            actions.append(
+                {
+                    "op": "fold_visible_unicode",
+                    "folded": before["visible_fold_chars"],
                     "verifiable": True,
                 }
             )

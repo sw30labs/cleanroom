@@ -44,7 +44,8 @@ a `safe` run produces a working cleaned file with no model at all.
 
 | Channel | What we do | Verifiable? |
 |---|---|---|
-| Invisible Unicode (ZWSP, bidi, tags, exotic spaces) | Deterministic strip | ✅ counted |
+| Invisible Unicode (ZWSP, bidi, word joiner, tags, exotic spaces, format chars) | Deterministic strip (exotic spaces → ASCII space) | ✅ counted |
+| Visible Latin typography (em dash, curly quotes, ñ, other diacritics) | Deterministic ASCII fold (`—` → `--`, `ñ` → `n`) | ✅ counted |
 | AI YAML frontmatter keys (`ai`, `model`, `generator`, …) | Deterministic strip | ✅ counted |
 | Container metadata (PNG/JPEG C2PA/EXIF/XMP, DOCX/ODT props, PDF XMP) | Flagged in Analyze; strip pending a format-aware tool (exiftool/c2patool) or LLM-rewrite repackage | ⚠️ partial |
 | Statistical token-sampling text watermarks | LLM rewrite (aggressive strength) | ❌ best-effort |

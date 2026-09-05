@@ -67,7 +67,7 @@ def _baseline_plan(analysis: dict[str, Any]) -> dict[str, Any]:
             {
                 "id": "A1",
                 "op": "strip_unicode",
-                "description": "Strip invisible Unicode / tag characters",
+                "description": "Strip invisible Unicode and fold visible Latin typography to ASCII",
                 "strength": "safe",
                 "risk": "none",
                 "rationale": f"removes {marks['total_marked_chars']} marked chars",
@@ -100,7 +100,7 @@ def _baseline_plan(analysis: dict[str, Any]) -> dict[str, Any]:
         )
 
     recommended = det.get("recommended_strength") or (
-        "aggressive" if marks.get("total_marked_chars", 0) > 0 else "safe"
+        "aggressive" if marks.get("invisible_chars", 0) > 0 else "safe"
     )
     if recommended == "aggressive":
         actions.append(

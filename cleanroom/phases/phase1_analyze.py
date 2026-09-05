@@ -107,11 +107,11 @@ def analyze_file(path: Path, client: LLMClient | None = None) -> AnalyzeResult:
             errors.append(f"analyze semantic: {exc}")
             status = "degraded"
             deterministic["recommended_strength"] = (
-                "aggressive" if deterministic["marks"]["total_marked_chars"] > 0 else "safe"
+                "aggressive" if deterministic["marks"].get("invisible_chars", 0) > 0 else "safe"
             )
             return AnalyzeResult(status=status, profile=profile.__dict__, deterministic=deterministic, semantic=semantic, errors=errors)
     elif profile.is_text_like and profile.extracted_text.strip():
         deterministic["recommended_strength"] = (
-            "aggressive" if deterministic["marks"]["total_marked_chars"] > 0 else "safe"
+            "aggressive" if deterministic["marks"].get("invisible_chars", 0) > 0 else "safe"
         )
     return AnalyzeResult(status="ok", profile=profile.__dict__, deterministic=deterministic, semantic=semantic, errors=errors)
